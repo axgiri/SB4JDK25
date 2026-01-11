@@ -6,7 +6,7 @@ plugins {
 
 group = "com.example"
 version = "0.0.1-SNAPSHOT"
-description = "default settings for Adam from reiaogiri@gmail.com "
+description = "Atipera"
 
 java {
 	toolchain {
@@ -20,8 +20,9 @@ repositories {
 
 dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
-	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
-	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+	implementation("org.springframework.boot:spring-boot-starter-restclient")
+	testImplementation("org.springframework.boot:spring-boot-starter-test")
+	testImplementation("org.wiremock:wiremock-standalone:3.10.0")
 }
 
 tasks.withType<Test> {
