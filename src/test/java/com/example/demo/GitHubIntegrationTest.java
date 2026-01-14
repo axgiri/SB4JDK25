@@ -1,55 +1,33 @@
 package com.example.demo;
 
-import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
+import org.json.JSONException;
 import org.junit.jupiter.api.Test;
+import org.skyscreamer.jsonassert.JSONAssert;
+import org.skyscreamer.jsonassert.JSONCompareMode;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.http.MediaType;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.web.client.RestClient;
+import org.springframework.http.HttpStatus;
+import org.wiremock.spring.ConfigureWireMock;
+import org.wiremock.spring.EnableWireMock;
 
-import static com.github.tomakehurst.wiremock.client.WireMock.*;
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.stubFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureTestRestTemplate
+@EnableWireMock(@ConfigureWireMock(name = "github-api", baseUrlProperties = "github.api.base-url"))
 class GitHubIntegrationTest {
 
-    private static WireMockServer wireMockServer;
-
-    @LocalServerPort
-    private int port;
-
     @Autowired
-    private RestClient.Builder restClientBuilder;
-
-    @BeforeAll
-    static void startWireMock() {
-        wireMockServer = new WireMockServer(0);
-        wireMockServer.start();
-        WireMock.configureFor(wireMockServer.port());
-    }
-
-    @AfterAll
-    static void stopWireMock() {
-        wireMockServer.stop();
-    }
-
-    @DynamicPropertySource
-    static void configureProperties(DynamicPropertyRegistry registry) {
-        registry.add("github.api.base-url", () -> "http://localhost:" + wireMockServer.port());
-    }
-
-    private RestClient testClient() {
-        return restClientBuilder.baseUrl("http://localhost:" + port).build();
-    }
+    private TestRestTemplate testRestTemplate;
 
     @Test
-    void returnsRepositoriesWithBranches() {
+    void returnsRepositoriesWithBranchesFilteringOutForks() throws JSONException {
         stubFor(WireMock.get(urlEqualTo("/users/testuser/repos"))
                 .willReturn(aResponse()
                         .withStatus(200)
@@ -77,33 +55,37 @@ class GitHubIntegrationTest {
                                 [
                                     {
                                         "name": "main",
-                                        "commit": {"sha": "somesha"}
+                                        "commit": {"sha": "abc123"}
                                     },
                                     {
                                         "name": "develop",
-                                        "commit": {"sha": "somesha2"}
+                                        "commit": {"sha": "def456"}
                                     }
                                 ]
                                 """)));
 
-        String response = testClient().get()
-                .uri("/api/repositories/testuser")
-                .accept(MediaType.APPLICATION_JSON)
-                .retrieve()
-                .body(String.class);
+        final var expectedJson = """
+                [
+                    {
+                        "name": "repo1",
+                        "owner": {"login": "testuser"},
+                        "fork": false,
+                        "branches": [
+                            {"name": "main", "commit": {"sha": "abc123"}},
+                            {"name": "develop", "commit": {"sha": "def456"}}
+                        ]
+                    }
+                ]
+                """;
 
-        assertThat(response)
-                .contains("\"name\":\"repo1\"")
-                .contains("\"login\":\"testuser\"")
-                .contains("\"name\":\"main\"")
-                .contains("\"sha\":\"somesha\"")
-                .contains("\"name\":\"develop\"")
-                .contains("\"sha\":\"somesha2\"")
-                .doesNotContain("forked-repo");
+        final var response = testRestTemplate.getForEntity("/api/v1/repositories/testuser", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JSONAssert.assertEquals(expectedJson, response.getBody(), JSONCompareMode.STRICT);
     }
 
     @Test
-    void returns404ForNonExistingUser() {
+    void returns404ForNonExistingUser() throws JSONException {
         stubFor(WireMock.get(urlEqualTo("/users/nonexistentuser/repos"))
                 .willReturn(aResponse()
                         .withStatus(404)
@@ -112,15 +94,32 @@ class GitHubIntegrationTest {
                                 {"message": "Not Found"}
                                 """)));
 
-        String response = testClient().get()
-                .uri("/api/repositories/nonexistentuser")
-                .accept(MediaType.APPLICATION_JSON)
-                .retrieve()
-                .onStatus(status -> status.value() == 404, (req, res) -> {})
-                .body(String.class);
+        final var expectedJson = """
+                {
+                    "status": 404,
+                    "message": "User not found"
+                }
+                """;
 
-        assertThat(response)
-                .contains("\"status\":404")
-                .contains("\"message\":\"User not found\"");
+        final var response = testRestTemplate.getForEntity("/api/v1/repositories/nonexistentuser", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JSONAssert.assertEquals(expectedJson, response.getBody(), JSONCompareMode.STRICT);
+    }
+
+    @Test
+    void returnsEmptyListForUserWithNoRepositories() throws JSONException {
+        stubFor(WireMock.get(urlEqualTo("/users/emptyuser/repos"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("[]")));
+
+        final var expectedJson = "[]";
+
+        final var response = testRestTemplate.getForEntity("/api/v1/repositories/emptyuser", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JSONAssert.assertEquals(expectedJson, response.getBody(), JSONCompareMode.STRICT);
     }
 }

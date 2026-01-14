@@ -1,3 +1,7 @@
 package com.example.demo;
 
-record Commit(String sha) {}
+import org.jspecify.annotations.NullMarked;
+
+@NullMarked
+record Commit(String sha) {
+}

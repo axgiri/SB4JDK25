@@ -21,8 +21,11 @@ repositories {
 dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
 	implementation("org.springframework.boot:spring-boot-starter-restclient")
+	implementation("org.jspecify:jspecify:1.0.0")
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
-	testImplementation("org.wiremock:wiremock-standalone:3.10.0")
+	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+	testImplementation("org.wiremock.integrations:wiremock-spring-boot:4.0.8")
+	testImplementation("org.skyscreamer:jsonassert:1.5.3")
 }
 
 tasks.withType<Test> {
